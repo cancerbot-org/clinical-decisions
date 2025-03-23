@@ -1,6 +1,14 @@
 from decouple import config, Csv
 import dj_database_url
+import django_heroku
 import os
+
+# Activate Django-Heroku settings
+django_heroku.settings(locals())
+
+
+# Security settings
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=False, cast=bool)
