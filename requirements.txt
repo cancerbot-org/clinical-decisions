@@ -1,0 +1,23 @@
+python-decouple 
+dj-database-url
+
+# Django web framework
+Django>=4.2,<5.0
+
+# PostgreSQL database adapter for Django
+psycopg2-binary>=2.9
+
+# Optional: Django REST Framework if you want to extend the project into a full REST API
+djangorestframework>=3.14
+
+# Optional but recommended for managing environment variables securely
+python-decouple>=3.8
+
+# Optional for Cross-Origin Resource Sharing (CORS) if building a frontend app to connect
+django-cors-headers>=4.3
+
+# Optional for running Django in production
+gunicorn>=21.2
+
+# Optional: Linting and code quality
+flake8>=6.1
