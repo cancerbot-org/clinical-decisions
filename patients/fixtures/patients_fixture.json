@@ -1,0 +1,29 @@
+[
+    {
+      "model": "patients.patient",
+      "pk": 1,
+      "fields": {
+        "patient_id": "P001",
+        "name": "John Doe",
+        "date_of_birth": "1980-01-15"
+      }
+    },
+    {
+      "model": "patients.patient",
+      "pk": 2,
+      "fields": {
+        "patient_id": "P002",
+        "name": "Jane Smith",
+        "date_of_birth": "1975-05-23"
+      }
+    },
+    {
+      "model": "patients.patient",
+      "pk": 3,
+      "fields": {
+        "patient_id": "P003",
+        "name": "Michael Johnson",
+        "date_of_birth": "1990-09-12"
+      }
+    }
+  ]
