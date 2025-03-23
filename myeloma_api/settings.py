@@ -16,9 +16,6 @@ STATIC_URL = '/static/'
 # Recommended storage backend for WhiteNoise
 STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
-# Activate Django-Heroku settings
-django_heroku.settings(locals())
-
 # Security settings
 SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
 
@@ -52,6 +49,10 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
+
+# Activate Django-Heroku settings
+django_heroku.settings(locals())
 
 ROOT_URLCONF = 'myeloma_api.urls'
 
