@@ -11,7 +11,7 @@ import json
 def submit_diagnostics(request, patient_id):
     data = json.loads(request.body)
     try:
-        patient = Patient.objects.get(patient_id=patient_id)
+        patient = Patient.objects.get_or_create(patient_id=patient_id)
     except Patient.DoesNotExist:
         return JsonResponse({'error': 'Patient not found'}, status=404)
 
