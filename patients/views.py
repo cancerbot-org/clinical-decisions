@@ -11,7 +11,7 @@ import json
 def submit_diagnostics(request, patient_id):
     data = json.loads(request.body)
     try:
-        patient = Patient.objects.get(patient_id=patient_id)
+        patient = Patient.objects.get(patient_id=patient_id).first()
     except Patient.DoesNotExist:
         return JsonResponse({'error': 'Patient not found'}, status=404)
 
@@ -90,28 +90,70 @@ def treatment_recommendations(request, patient_id):
         return JsonResponse({'error': 'Patient or diagnostics not found'}, status=404)
 
     recommendations = []
-    supportive_care = []
+    notes = []
 
-    if "del(17p)" in latest_diag.biomarkers.get('cytogenetics', []):
-        recommendations.append({
-            'lineOfTherapy': 'First-line',
-            'recommendation': 'Daratumumab + VRd + ASCT (if eligible)',
-            'rationale': 'High-risk cytogenetics present'
-        })
+    # 1️⃣ Performance status and eligibility for aggressive therapy
+    if patient.ecog_performance_status is not None and patient.ecog_performance_status <= 2:
+        recommendations.append("Eligible for aggressive treatment options (VRd, KRd).")
+    elif patient.karnofsky_performance_score is not None and patient.karnofsky_performance_score >= 70:
+        recommendations.append("Consider standard induction therapy with lenalidomide-based regimens.")
     else:
-        recommendations.append({
-            'lineOfTherapy': 'First-line',
-            'recommendation': 'VRd induction therapy followed by ASCT (if eligible)',
-            'rationale': 'Standard-risk disease'
-        })
+        recommendations.append("Consider less intensive therapy (Rd-lite, DRd).")
 
-    supportive_care.append("Bisphosphonates for bone lesions")
+    # 2️⃣ Stem cell transplant eligibility
+    if not patient.stem_cell_transplant_history:
+        recommendations.append("Eligible for Autologous Stem Cell Transplant (ASCT). Collect stem cells.")
+    else:
+        notes.append("Stem cell transplant already performed.")
 
-    return JsonResponse({
-        'patientId': patient_id,
-        'treatmentRecommendations': recommendations,
-        'supportiveCare': supportive_care
-    })
+    # 3️⃣ Cytogenetic high-risk markers (assume csv contains markers)
+    high_risk_markers = ["del17p", "t(4;14)", "t(14;16)"]
+    if patient.cytogenic_markers:
+        markers = [m.strip().lower() for m in patient.cytogenic_markers.split(',')]
+        if any(marker in markers for marker in high_risk_markers):
+            recommendations.append("High-risk cytogenetics: consider quadruplet regimens (Dara-KRd).")
+        else:
+            notes.append("Standard-risk cytogenetics detected.")
+
+    # 4️⃣ CRAB criteria or SLiM-CRAB (disease-defining events)
+    if patient.meets_crab or patient.meets_slim:
+        recommendations.append("Initiate systemic therapy per IMWG criteria (meets SLiM-CRAB).")
+    else:
+        recommendations.append("Consider observation or clinical trial enrollment.")
+
+    # 5️⃣ Peripheral neuropathy considerations
+    if patient.peripheral_neuropathy_grade and patient.peripheral_neuropathy_grade >= 2:
+        recommendations.append("Avoid bortezomib; consider carfilzomib or ixazomib instead.")
+
+    # 6️⃣ Renal impairment (adjust treatment)
+    if patient.serum_creatinine_level and patient.serum_creatinine_level > 2.0:
+        recommendations.append("Renal impairment detected: dose-adjust lenalidomide and avoid nephrotoxic agents.")
+
+    # 7️⃣ Previous therapy refractory status
+    if patient.treatment_refractory_status:
+        notes.append(f"Refractory to: {patient.treatment_refractory_status}. Consider next-line salvage regimens (DPd, IsaPd, Selinexor combinations).")
+
+    # 8️⃣ Progression noted
+    if patient.progression and "progression" in patient.progression.lower():
+        recommendations.append("Disease progression detected: initiate relapse/refractory regimen.")
+
+    # 9️⃣ Frailty assessment (simplified)
+    if patient.karnofsky_performance_score and patient.karnofsky_performance_score < 60:
+        recommendations.append("Consider frailty-adapted treatment: low-dose dexamethasone, avoid triplet regimens.")
+
+    # Example of default fallback recommendation
+    if not recommendations:
+        recommendations.append("No immediate treatment recommendation. Recommend multidisciplinary board discussion.")
+
+    # 10️⃣ Summary response
+    response = {
+        'patient_id': patient_id,
+        'recommendations': recommendations,
+        'notes': notes,
+        'nextStep': 'Schedule follow-up consultation in 4 weeks or sooner based on lab results.'
+    }
+
+    return JsonResponse(response, status=200)
 
 @csrf_exempt
 @require_http_methods(["POST"])
