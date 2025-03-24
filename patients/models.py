@@ -231,7 +231,6 @@ class Patient(models.Model):
         default='MG/DL',
         help_text="Units for the patient's direct serum bilirubin level"
     )
-    clonal_bone_marrow_plasma_cells_percentage = models.DecimalField(decimal_places=2, max_digits=10, blank=True, null=True)
     kappa_flc = models.IntegerField(blank=True, null=True)
     lambda_flc = models.IntegerField(blank=True, null=True)
     meets_slim = models.BooleanField(blank=True, null=True)

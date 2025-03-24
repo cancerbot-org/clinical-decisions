@@ -4,8 +4,6 @@ from django.views.decorators.http import require_http_methods
 from .models import Patient, Diagnostic, Monitoring
 import json
 
-
-
 @csrf_exempt
 @require_http_methods(["POST"])
 def submit_diagnostics(request, patient_id):
@@ -15,16 +13,45 @@ def submit_diagnostics(request, patient_id):
     except Patient.DoesNotExist:
         return JsonResponse({'error': 'Patient not found'}, status=404)
 
-    Diagnostic.objects.create(
-        patient=patient,
-        cbc=data.get('labResults', {}).get('cbc', {}),
-        calcium=data.get('labResults', {}).get('calcium'),
-        creatinine=data.get('labResults', {}).get('creatinine'),
-        beta2_microglobulin=data.get('labResults', {}).get('beta2Microglobulin'),
-        ldh=data.get('labResults', {}).get('ldh'),
-        imaging_results=data.get('imagingResults', {}),
-        biomarkers=data.get('biomarkers', {})
-    )
+    try:
+        # Retrieve or create the patient by patient_id
+        patient, created = Patient.objects.get_or_create(patient_id=patient_id)
+    except Patient.DoesNotExist:
+        return JsonResponse({'error': 'Patient not found'}, status=404)
+
+    # Update fields with incoming data
+    patient.karnofsky_performance_score = data.get('karnofsky_performance_score')
+    patient.ecog_performance_status = data.get('ecog_performance_status')
+    patient.stem_cell_transplant_history = data.get('stem_cell_transplant_history')
+    patient.cytogenic_markers = data.get('cytogenic_markers')
+    patient.peripheral_neuropathy_grade = data.get('peripheral_neuropathy_grade')
+
+    patient.serum_creatinine_level = data.get('serum_creatinine_level')
+    patient.creatinine_clearance_rate = data.get('creatinine_clearance_rate')
+    patient.serum_calcium_level = data.get('serum_calcium_level')
+    patient.hemoglobin_level = data.get('hemoglobin_level')
+
+    patient.bone_lesions = data.get('bone_lesions')
+    patient.bone_imaging_result = data.get('bone_imaging_result')
+
+    patient.clonal_bone_marrow_plasma_cells_percentage = data.get('clonal_bone_marrow_plasma_cells_percentage')
+    patient.kappa_flc = data.get('kappa_flc')
+    patient.lambda_flc = data.get('lambda_flc')
+
+    patient.treatment_refractory_status = data.get('treatment_refractory_status')
+    patient.progression = data.get('progression')
+
+    patient.beta2_microglobulin = data.get('beta2_microglobulin')
+    patient.albumin = data.get('albumin')
+    patient.lactate_dehydrogenase_level = data.get('lactate_dehydrogenase_level')
+
+    # Save the patient record
+    patient.save()
+
+    return JsonResponse({
+        'message': 'Patient diagnostics successfully updated.',
+        'patient_id': patient.patient_id
+    }, status=200)
 
     return JsonResponse({
         'message': 'Diagnostics uploaded successfully.',
@@ -102,7 +129,18 @@ def treatment_recommendations(request, patient_id):
 
     # 2️⃣ Stem cell transplant eligibility
     if not patient.stem_cell_transplant_history:
-        recommendations.append("Eligible for Autologous Stem Cell Transplant (ASCT). Collect stem cells.")
+
+        # Transplant eligibility
+        transplant_eligible = (
+            (patient.karnofsky_performance_score and patient.karnofsky_performance_score >= 70) or
+            (patient.ecog_performance_status and patient.ecog_performance_status <= 2)
+        )
+
+        if transplant_eligible:
+            recommendations.append("NCCN: Transplant Eligible → Induction therapy with Daratumumab + VRd (preferred).")
+        else:
+            recommendations.append("NCCN: Transplant Ineligible → Consider DRd or lenalidomide + dexamethasone (Rd).")
+
     else:
         notes.append("Stem cell transplant already performed.")
 
