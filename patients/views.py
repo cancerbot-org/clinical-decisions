@@ -45,12 +45,59 @@ def submit_diagnostics(request, patient_id):
     patient.albumin = data.get('albumin')
     patient.lactate_dehydrogenase_level = data.get('lactate_dehydrogenase_level')
 
+    # --------
+    # Compute meets_crab
+    # --------
+    meets_crab = False
+    crab_criteria = {
+        'C': patient.serum_calcium_level is not None and patient.serum_calcium_level > 11,
+        'R': (
+            (patient.serum_creatinine_level is not None and patient.serum_creatinine_level > 2) or
+            (patient.creatinine_clearance_rate is not None and patient.creatinine_clearance_rate < 40)
+        ),
+        'A': patient.hemoglobin_level is not None and patient.hemoglobin_level < 10,
+        'B': patient.bone_lesions is not None and str(patient.bone_lesions).lower() not in ['0', 'none']
+    }
+
+    # If ANY CRAB criterion is met, set meets_crab = True
+    meets_crab = any(crab_criteria.values())
+    patient.meets_crab = meets_crab
+
+    # --------
+    # Compute meets_slim
+    # --------
+    meets_slim = False
+    slim_criteria = {
+        'S': patient.clonal_bone_marrow_plasma_cells_percentage is not None and patient.clonal_bone_marrow_plasma_cells_percentage >= 60,
+        'Li': (
+            patient.kappa_flc is not None and patient.lambda_flc is not None and
+            (
+                (patient.kappa_flc / max(patient.lambda_flc, 1)) >= 100 or
+                (patient.lambda_flc / max(patient.kappa_flc, 1)) >= 100
+            )
+        ),
+        'M': (
+            patient.bone_imaging_result is not None and patient.bone_imaging_result.lower() == 'yes' and
+            patient.bone_lesions is not None and (
+                str(patient.bone_lesions) in ['2', 'more than 2']
+            )
+        )
+    }
+
+    # If ANY SLiM criterion is met, set meets_slim = True
+    meets_slim = any(slim_criteria.values())
+    patient.meets_slim = meets_slim
+
     # Save the patient record
     patient.save()
 
     return JsonResponse({
         'message': 'Patient diagnostics successfully updated.',
-        'patient_id': patient.patient_id
+        'patient_id': patient.patient_id,
+        'meets_crab': meets_crab,
+        'meets_slim': meets_slim,
+        'crab_criteria': crab_criteria,
+        'slim_criteria': slim_criteria
     }, status=200)
 
     return JsonResponse({
