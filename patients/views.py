@@ -156,7 +156,7 @@ def staging(request, patient_id):
     })
 
 @require_http_methods(["GET"])
-def treatment_recommendations(request, patient_id, framework=None):
+def treatment_recommendations(request, patient_id):
 
     try:
         patient = Patient.objects.get(patient_id=patient_id)
@@ -167,6 +167,7 @@ def treatment_recommendations(request, patient_id, framework=None):
     recommendations = []
     notes = []
 
+    framework = request.GET.get("framework", "").lower()
     # Convert framework to lowercase safely
     framework = (framework or "").lower()
 
