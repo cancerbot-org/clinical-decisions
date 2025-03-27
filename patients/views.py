@@ -156,7 +156,8 @@ def staging(request, patient_id):
     })
 
 @require_http_methods(["GET"])
-def treatment_recommendations(request, patient_id):
+def treatment_recommendations(request, patient_id, framework=None):
+
     try:
         patient = Patient.objects.get(patient_id=patient_id)
         latest_diag = Diagnostic.objects.filter(patient=patient).latest('date')
@@ -166,79 +167,116 @@ def treatment_recommendations(request, patient_id):
     recommendations = []
     notes = []
 
-    # 1️⃣ Performance status and eligibility for aggressive therapy
-    if patient.ecog_performance_status is not None and patient.ecog_performance_status <= 2:
-        recommendations.append("Eligible for aggressive treatment options (VRd, KRd).")
-    elif patient.karnofsky_performance_score is not None and patient.karnofsky_performance_score >= 70:
-        recommendations.append("Consider standard induction therapy with lenalidomide-based regimens.")
-    else:
-        recommendations.append("Consider less intensive therapy (Rd-lite, DRd).")
+    # Convert framework to lowercase safely
+    framework = (framework or "").lower()
 
-    # 2️⃣ Stem cell transplant eligibility
-    if not patient.stem_cell_transplant_history:
-
-        # Transplant eligibility
-        transplant_eligible = (
-            (patient.karnofsky_performance_score and patient.karnofsky_performance_score >= 70) or
-            (patient.ecog_performance_status and patient.ecog_performance_status <= 2)
-        )
-
-        if transplant_eligible:
-            recommendations.append("NCCN: Transplant Eligible → Induction therapy with Daratumumab + VRd (preferred).")
+    # === ✅ NICE FRAMEWORK PATH ===
+    if framework == "nice":
+        # 1️⃣ Fit vs frail
+        if patient.karnofsky_performance_score and patient.karnofsky_performance_score >= 70:
+            recommendations.append("NICE: Fit for intensive treatment → Offer bortezomib + thalidomide + dexamethasone (VTD).")
         else:
-            recommendations.append("NCCN: Transplant Ineligible → Consider DRd or lenalidomide + dexamethasone (Rd).")
+            recommendations.append("NICE: Frail or transplant-ineligible → Offer lenalidomide + dexamethasone (Rd) or VMP if fit enough.")
 
-    else:
-        notes.append("Stem cell transplant already performed.")
-
-    # 3️⃣ Cytogenetic high-risk markers (assume csv contains markers)
-    high_risk_markers = ["del17p", "t(4;14)", "t(14;16)"]
-    if patient.cytogenic_markers:
-        markers = [m.strip().lower() for m in patient.cytogenic_markers.split(',')]
-        if any(marker in markers for marker in high_risk_markers):
-            recommendations.append("High-risk cytogenetics: consider quadruplet regimens (Dara-KRd).")
+        # 2️⃣ Stem cell transplant
+        if not patient.stem_cell_transplant_history:
+            if patient.karnofsky_performance_score and patient.karnofsky_performance_score >= 70:
+                recommendations.append("NICE: Consider autologous stem cell transplant following induction with VTD.")
+            else:
+                notes.append("Not eligible for stem cell transplant under NICE criteria.")
         else:
-            notes.append("Standard-risk cytogenetics detected.")
+            notes.append("Stem cell transplant already performed.")
 
-    # 4️⃣ CRAB criteria or SLiM-CRAB (disease-defining events)
-    if patient.meets_crab or patient.meets_slim:
-        recommendations.append("Initiate systemic therapy per IMWG criteria (meets SLiM-CRAB).")
+        # 3️⃣ Disease activity
+        if patient.meets_crab or patient.meets_slim:
+            recommendations.append("NICE: Meets SLiM-CRAB criteria → Initiate systemic therapy.")
+
+        # 4️⃣ Relapsed/Refractory
+        if patient.treatment_refractory_status or (patient.progression and "progression" in patient.progression.lower()):
+            recommendations.append("NICE: Relapse → Offer daratumumab + lenalidomide + dexamethasone (DRd), or carfilzomib-based regimen if previously treated.")
+
+        # 5️⃣ Renal Impairment
+        if patient.serum_creatinine_level and patient.serum_creatinine_level > 2.0:
+            recommendations.append("NICE: Renal impairment → Consider bortezomib-based treatment (VCD or VMP). Dose-adjust lenalidomide.")
+
+        # 6️⃣ Cytogenetics
+        high_risk_markers = ["del17p", "t(4;14)", "t(14;16)"]
+        if patient.cytogenic_markers:
+            markers = [m.strip().lower() for m in patient.cytogenic_markers.split(',')]
+            if any(marker in markers for marker in high_risk_markers):
+                recommendations.append("NICE: High-risk cytogenetics → Consider clinical trial or more aggressive triplet/quadruplet regimen.")
+
+        # 7️⃣ Peripheral neuropathy
+        if patient.peripheral_neuropathy_grade and patient.peripheral_neuropathy_grade >= 2:
+            recommendations.append("NICE: Avoid thalidomide and bortezomib due to neuropathy — consider lenalidomide-based regimens.")
+
+        # Default note
+        if not recommendations:
+            recommendations.append("NICE: No specific recommendation found — refer to haematology MDT.")
+
+    # === ✅ DEFAULT LOGIC from consensus practice and literature ===
     else:
-        recommendations.append("Consider observation or clinical trial enrollment.")
+        if patient.ecog_performance_status is not None and patient.ecog_performance_status <= 2:
+            recommendations.append("Eligible for aggressive treatment options (VRd, KRd).")
+        elif patient.karnofsky_performance_score is not None and patient.karnofsky_performance_score >= 70:
+            recommendations.append("Consider standard induction therapy with lenalidomide-based regimens.")
+        else:
+            recommendations.append("Consider less intensive therapy (Rd-lite, DRd).")
 
-    # 5️⃣ Peripheral neuropathy considerations
-    if patient.peripheral_neuropathy_grade and patient.peripheral_neuropathy_grade >= 2:
-        recommendations.append("Avoid bortezomib; consider carfilzomib or ixazomib instead.")
+        if not patient.stem_cell_transplant_history:
+            transplant_eligible = (
+                (patient.karnofsky_performance_score and patient.karnofsky_performance_score >= 70) or
+                (patient.ecog_performance_status and patient.ecog_performance_status <= 2)
+            )
+            if transplant_eligible:
+                recommendations.append("Transplant Eligible → Induction therapy with Daratumumab + VRd (preferred).")
+            else:
+                recommendations.append("Transplant Ineligible → Consider DRd or lenalidomide + dexamethasone (Rd).")
+        else:
+            notes.append("Stem cell transplant already performed.")
 
-    # 6️⃣ Renal impairment (adjust treatment)
-    if patient.serum_creatinine_level and patient.serum_creatinine_level > 2.0:
-        recommendations.append("Renal impairment detected: dose-adjust lenalidomide and avoid nephrotoxic agents.")
+        high_risk_markers = ["del17p", "t(4;14)", "t(14;16)"]
+        if patient.cytogenic_markers:
+            markers = [m.strip().lower() for m in patient.cytogenic_markers.split(',')]
+            if any(marker in markers for marker in high_risk_markers):
+                recommendations.append("High-risk cytogenetics: consider quadruplet regimens (Dara-KRd).")
+            else:
+                notes.append("Standard-risk cytogenetics detected.")
 
-    # 7️⃣ Previous therapy refractory status
-    if patient.treatment_refractory_status:
-        notes.append(f"Refractory to: {patient.treatment_refractory_status}. Consider next-line salvage regimens (DPd, IsaPd, Selinexor combinations).")
+        if patient.meets_crab or patient.meets_slim:
+            recommendations.append("Initiate systemic therapy per IMWG criteria (meets SLiM-CRAB).")
+        else:
+            recommendations.append("Consider observation or clinical trial enrollment.")
 
-    # 8️⃣ Progression noted
-    if patient.progression and "progression" in patient.progression.lower():
-        recommendations.append("Disease progression detected: initiate relapse/refractory regimen.")
+        if patient.peripheral_neuropathy_grade and patient.peripheral_neuropathy_grade >= 2:
+            recommendations.append("Avoid bortezomib; consider carfilzomib or ixazomib instead.")
 
-    # 9️⃣ Frailty assessment (simplified)
-    if patient.karnofsky_performance_score and patient.karnofsky_performance_score < 60:
-        recommendations.append("Consider frailty-adapted treatment: low-dose dexamethasone, avoid triplet regimens.")
+        if patient.serum_creatinine_level and patient.serum_creatinine_level > 2.0:
+            recommendations.append("Renal impairment detected: dose-adjust lenalidomide and avoid nephrotoxic agents.")
 
-    # Example of default fallback recommendation
-    if not recommendations:
-        recommendations.append("No immediate treatment recommendation. Recommend multidisciplinary board discussion.")
+        if patient.treatment_refractory_status:
+            notes.append(f"Refractory to: {patient.treatment_refractory_status}. Consider next-line salvage regimens (DPd, IsaPd, Selinexor combinations).")
 
-    # 10️⃣ Summary response
+        if patient.progression and "progression" in patient.progression.lower():
+            recommendations.append("Disease progression detected: initiate relapse/refractory regimen.")
+
+        if patient.karnofsky_performance_score and patient.karnofsky_performance_score < 60:
+            recommendations.append("Consider frailty-adapted treatment: low-dose dexamethasone, avoid triplet regimens.")
+
+        if not recommendations:
+            recommendations.append("No immediate treatment recommendation. Recommend multidisciplinary board discussion.")
+
+    # Final response
     response = {
         'patient_id': patient_id,
+        'framework': framework.upper() if framework else "CONSENSUS",
         'recommendations': recommendations,
         'notes': notes,
         'nextStep': 'Schedule follow-up consultation in 4 weeks or sooner based on lab results.'
     }
 
     return JsonResponse(response, status=200)
+
 
 @csrf_exempt
 @require_http_methods(["POST"])
